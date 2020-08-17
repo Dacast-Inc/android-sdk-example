@@ -1,0 +1,2 @@
+include ':app', ':theoplayer-android-andrdacast20171106-2.64.0-minapi21-release'
+rootProject.name='Test'
