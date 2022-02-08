@@ -15,13 +15,13 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        player = new DacastPlayer(this, "104301_f_506288"/*, "https://cdn.theoplayer.com/demos/preroll.xml"*/);
+        player = new DacastPlayer(this, "3b67c4a9-3886-4eb1-d0eb-39b23b14bef3-vod-d77759bd-6167-724b-0d13-9323a27d4f66"/*, "https://cdn.theoplayer.com/demos/preroll.xml"*/);
         ConstraintLayout layout = findViewById(R.id.mainLayout);
         player.getView().setLayoutParams(
-                new ConstraintLayout.LayoutParams(
-                        ConstraintLayout.LayoutParams.MATCH_PARENT,
-                        ConstraintLayout.LayoutParams.MATCH_PARENT
-                )
+            new ConstraintLayout.LayoutParams(
+                ConstraintLayout.LayoutParams.MATCH_PARENT,
+                ConstraintLayout.LayoutParams.MATCH_PARENT
+            )
         );
         layout.addView(player.getView());
     }

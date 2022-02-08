@@ -5,7 +5,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.AsyncTask;
 import android.os.Handler;
-import android.os.Message;
+import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
@@ -18,135 +18,76 @@ import com.theoplayer.android.api.source.SourceDescription;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
 class DownloadImageTask extends AsyncTask<String, Void, Bitmap> {
-    ImageView bmImage;
+    private final WeakReference<ImageView> bmImage;
 
     public DownloadImageTask(ImageView bmImage) {
-        this.bmImage = bmImage;
+        this.bmImage = new WeakReference<>(bmImage);
     }
 
     protected Bitmap doInBackground(String... urls) {
-        String urldisplay = urls[0];
-        Bitmap mIcon11 = null;
         try {
-            InputStream in = new URL(urldisplay).openStream();
-            mIcon11 = BitmapFactory.decodeStream(in);
+            InputStream in = new URL(urls[0]).openStream();
+            return BitmapFactory.decodeStream(in);
         } catch (Exception e) {
             Log.e("Error", e.getMessage());
             e.printStackTrace();
+            return null;
         }
-        return mIcon11;
     }
 
     protected void onPostExecute(Bitmap result) {
-        bmImage.setImageBitmap(result);
+        bmImage.get().setImageBitmap(result);
     }
 }
 
-class ContentId{
-    public int broadcasterId, mediaId;
-    public String contentType;
-
-    private ContentId(){}
-
-    public static ContentId parse(String contentIdStr) throws Exception{
-        ContentId contentId = new ContentId();
-
-        String[] split = contentIdStr.split("_", 3);
-        contentId.broadcasterId = Integer.parseInt(split[0]);
-        contentId.mediaId = Integer.parseInt(split[2]);
-
-        if(!split[1].equals("c") && !split[1].equals("f") && !split[1].equals("l") && !split[1].equals("p")){
-            throw new Exception("invalid content type: " + split[1]);
-        }
-        contentId.contentType = split[1];
-
-        return contentId;
-    }
+class ContentInfoResponse {
+    ContentInfo contentInfo;
+}
+class ContentInfo {
+    String splashscreenUrl;
+    Features features;
+}
+class Features {
+    Watermark watermark;
+}
+class Watermark {
+    String imageUrl;
 }
 
-class ContentInfo{
-    public String m3u8Link;
-    public String posterLink;
-    public String adUrl;
-
-    public ContentInfo(JsonResponse json, ServiceResponse service, String adUrl){
-        this.m3u8Link = json.hls + service.token;
-        this.posterLink = json.stream.splash;
-        this.adUrl = adUrl;
-    }
-}
-
-class JsonResponse{
+class PlaybackUrlResponse {
     String hls;
-    JsonResponseStream stream;
-    JsonResponseTheme theme;
+    String mp4;
 }
 
-class JsonResponseTheme{
-    JsonResponseWatermark watermark;
-}
+class ContentInfoBlob {
+    PlaybackUrlResponse playback;
+    ContentInfo info;
 
-class JsonResponseWatermark{
-    String url;
-}
-
-class JsonResponseStream{
-    String splash;
-}
-
-class ServiceResponse{
-    String token;
-}
-
-class PlayerHandler extends Handler {
-    public static final int SET_CONTENT_INFO = 1;
-
-    THEOplayerView theoplayer;
-
-    public PlayerHandler(THEOplayerView theoplayer){
-        this.theoplayer = theoplayer;
-    }
-
-    @Override
-    public void handleMessage(Message msg) {
-        switch (msg.what){
-            case SET_CONTENT_INFO:
-                ContentInfo contentInfo = (ContentInfo)msg.obj;
-                SourceDescription.Builder sourceDescription = SourceDescription.Builder.sourceDescription(contentInfo.m3u8Link)
-                        .poster(contentInfo.posterLink);
-
-                if(contentInfo.adUrl != null){
-                    sourceDescription.ads(contentInfo.adUrl);
-                }
-
-                theoplayer.getPlayer().setSource(sourceDescription.build());
-                break;
-        }
+    ContentInfoBlob(PlaybackUrlResponse playback, ContentInfo info){
+        this.playback = playback;
+        this.info = info;
     }
 }
 
 public class DacastPlayer {
 
-    private static String TAG = "DacastPlayer";
-    private static String JSON_URL_BASE = "https://json.dacast.com/b/";
-    private static String SERVICE_URL_BASE = "https://services.dacast.com/token/i/b/";
+    private static final String URL_BASE = "https://playback.dacast.com";
 
-    private THEOplayerView theoplayer;
-    private PlayerHandler handler;
-    private RelativeLayout layout;
-    private ImageView watermarkImage;
+    private final THEOplayerView theoplayer;
+    private final RelativeLayout layout;
+    private final ImageView watermarkImage;
 
     public DacastPlayer(Activity activity, String contentIdStr) {
         this(activity, contentIdStr, null);
     }
 
-    public DacastPlayer(Activity activity, String contentIdStr, String adUrl) {
+    public DacastPlayer(Activity activity, String contentId, String adUrl) {
         theoplayer = new THEOplayerView(activity);
-        handler = new PlayerHandler(theoplayer);
         watermarkImage = new ImageView(activity);
         layout = new RelativeLayout(activity);
 
@@ -164,15 +105,6 @@ public class DacastPlayer {
         layout.addView(watermarkImage, paramsImage);
         watermarkImage.setImageAlpha(90);
 
-
-        ContentId contentId;
-        try {
-            contentId = ContentId.parse(contentIdStr);
-        } catch (Exception e) {
-            e.printStackTrace();
-            Log.v(TAG, "Invalid content id provided: " + contentIdStr);
-            return;
-        }
         fetchVideoInfo(contentId, adUrl);
     }
 
@@ -196,26 +128,44 @@ public class DacastPlayer {
         theoplayer.onDestroy();
     }
 
-    private void fetchVideoInfo(final ContentId contentId, final String adUrl){
+    private void fetchVideoInfo(final String contentId, final String adUrl){
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    String rawJson = httpGet( JSON_URL_BASE + contentId.broadcasterId + "/" + contentId.contentType + "/" + contentId.mediaId);
-                    String rawToken = httpGet(SERVICE_URL_BASE + contentId.broadcasterId + "/" + contentId.contentType + "/" + contentId.mediaId);
+                    String rawContentInfo = httpGet( URL_BASE + "/content/info?provider=universe&contentId=" + contentId);
+                    String rawPlaybackUrl = httpGet(URL_BASE + "/content/access?provider=universe&contentId=" + contentId);
 
                     Gson gson = new Gson();
-                    JsonResponse json = gson.fromJson(rawJson, JsonResponse.class);
-                    ServiceResponse token = gson.fromJson(rawToken, ServiceResponse.class);
+                    ContentInfoResponse contentInfoResp = gson.fromJson(rawContentInfo, ContentInfoResponse.class);
+                    PlaybackUrlResponse playbackUrl = gson.fromJson(rawPlaybackUrl, PlaybackUrlResponse.class);
 
-                    ContentInfo contentInfo = new ContentInfo(json, token, adUrl);
-                    handler.sendMessage(handler.obtainMessage(PlayerHandler.SET_CONTENT_INFO, contentInfo));
+                    Handler handler = new Handler(Looper.getMainLooper(), message -> {
+                        ContentInfoBlob blob = (ContentInfoBlob)message.obj;
 
-                    if(json.theme.watermark.url != null){
-                        new DownloadImageTask(watermarkImage)
-                                .execute("https:" + json.theme.watermark.url);
+                        String sourceUrl = blob.playback.hls;
+                        if (sourceUrl == null) {
+                            sourceUrl = blob.playback.mp4;
+                        }
+
+                        SourceDescription.Builder sourceDescription = SourceDescription.Builder
+                            .sourceDescription(sourceUrl)
+                            .poster(blob.info.splashscreenUrl);
+
+                        if(adUrl != null){
+                            sourceDescription.ads(adUrl);
+                        }
+
+                        theoplayer.getPlayer().setSource(sourceDescription.build());
+
+                        return true;
+                    });
+
+                    handler.sendMessage(handler.obtainMessage(0, new ContentInfoBlob(playbackUrl, contentInfoResp.contentInfo)));
+
+                    if(contentInfoResp.contentInfo.features.watermark != null && contentInfoResp.contentInfo.features.watermark.imageUrl != null){
+                        new DownloadImageTask(watermarkImage).execute(contentInfoResp.contentInfo.features.watermark.imageUrl);
                     }
-
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
