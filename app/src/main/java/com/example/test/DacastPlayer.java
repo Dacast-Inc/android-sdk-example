@@ -13,7 +13,9 @@ import android.widget.RelativeLayout;
 
 import com.google.gson.Gson;
 import com.theoplayer.android.api.THEOplayerView;
+import com.theoplayer.android.api.player.track.texttrack.TextTrackKind;
 import com.theoplayer.android.api.source.SourceDescription;
+import com.theoplayer.android.api.source.TextTrackDescription;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -21,6 +23,7 @@ import java.io.InputStreamReader;
 import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
 
 class DownloadImageTask extends AsyncTask<String, Void, Bitmap> {
     private final WeakReference<ImageView> bmImage;
@@ -54,6 +57,12 @@ class ContentInfo {
 }
 class Features {
     Watermark watermark;
+    ArrayList<Subtitle> subtitles;
+}
+class Subtitle {
+    String languageLongName;
+    String languageShortName;
+    String sourceVtt;
 }
 class Watermark {
     String imageUrl;
@@ -154,6 +163,22 @@ public class DacastPlayer {
 
                         if(adUrl != null){
                             sourceDescription.ads(adUrl);
+                        }
+
+                        TextTrackDescription[] subtitleArray = new TextTrackDescription[blob.info.features.subtitles.size()];
+                        for (int i = 0; i < blob.info.features.subtitles.size(); i++) {
+                            Subtitle sub = blob.info.features.subtitles.get(i);
+                            TextTrackDescription textTrack = new TextTrackDescription(
+                                sub.sourceVtt,
+                                false,
+                                TextTrackKind.SUBTITLES,
+                                sub.languageShortName,
+                                sub.languageLongName
+                            );
+                            subtitleArray[i] = textTrack;
+                        }
+                        if(subtitleArray.length != 0) {
+                            sourceDescription.textTracks(subtitleArray);
                         }
 
                         theoplayer.getPlayer().setSource(sourceDescription.build());
